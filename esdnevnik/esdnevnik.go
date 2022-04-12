@@ -12,26 +12,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/AlecAivazis/survey/v2"
 	"github.com/PuerkitoBio/goquery"
-	"github.com/chzyer/readline"
-	"github.com/manifoldco/promptui"
 	"golang.org/x/term"
 )
-
-type noBellStdout struct{}
-
-func (n *noBellStdout) Write(p []byte) (int, error) {
-	if len(p) == 1 && p[0] == readline.CharBell {
-		return 0, nil
-	}
-	return readline.Stdout.Write(p)
-}
-
-func (n *noBellStdout) Close() error {
-	return readline.Stdout.Close()
-}
-
-var NoBellStdout = &noBellStdout{}
 
 func CLI(args []string) int {
 	var app AppEnv
@@ -220,28 +204,23 @@ func (app *AppEnv) run() error {
 
 	if len(students.Data) == 1 {
 		student = students.Data[0]
+		fmt.Printf("Izabran ucenik: %v\n", student.FullName)
 	} else {
-		template := &promptui.SelectTemplates{
-			Label:    "{{ . }}?",
-			Active:   "> {{ .FullName | bold }}",
-			Inactive: "{{ .FullName }}",
-			Details:  "----------Ucenik----------\nIme i prezime: {{ .FullName }}\nPol: {{ .Gender }}",
+		studentNames := make([]string, 0, len(students.Data))
+		studentIds := make([]int, 0, len(students.Data))
+		for k, v := range students.Data {
+			studentNames = append(studentNames, v.FullName)
+			studentIds = append(studentIds, k)
 		}
-		prompt := promptui.Select{
-			Label:        "Izaberi ucenika",
-			Items:        students.Data,
-			Templates:    template,
-			Size:         4,
-			HideSelected: true,
-			Stdout:       NoBellStdout,
+		prompt := &survey.Select{
+			Message: "Izaberi ucenika",
+			Options: studentNames,
 		}
-		i, _, err := prompt.Run()
-		if err != nil {
-			return RuntimeError{Err: err}
-		}
-		student = students.Data[i]
+		var idx int
+		survey.AskOne(prompt, &idx)
+
+		student = students.Data[studentIds[idx]]
 	}
-	fmt.Printf("Izabran ucenik: %v\n", student.FullName)
 
 	var school School
 	schoolNumber := 0
@@ -263,37 +242,29 @@ func (app *AppEnv) run() error {
 	fmt.Printf("Skola: %v\n", school.SchoolName)
 
 	var schoolYear SchoolYear
-	schoolYears := make([]SchoolYear, 0, len(school.SchoolYears))
-	for _, v := range school.SchoolYears {
-		schoolYears = append(schoolYears, v)
+	schoolYears := make([]string, 0, len(school.SchoolYears))
+	schoolYearsIds := make([]int, 0, len(school.SchoolYears))
+	for k, v := range school.SchoolYears {
+		schoolYears = append(schoolYears, v.Year)
+		schoolYearsIds = append(schoolYearsIds, k)
 	}
 	if len(schoolYears) == 0 {
 		fmt.Println("No school years found")
 		return errors.New("no school years")
 	}
 	if len(schoolYears) == 1 {
-		schoolYear = schoolYears[0]
+		schoolYear = school.SchoolYears[schoolYearsIds[0]]
+		fmt.Printf("Izabrana godina: %v\n", schoolYear.Year)
 	} else {
-		template := &promptui.SelectTemplates{
-			Label:    "{{ . }}?",
-			Active:   "> {{ .Year | bold }}",
-			Inactive: "{{ .Year }}",
+		prompt := &survey.Select{
+			Message: "Izaberi godinu",
+			Options: schoolYears,
 		}
-		prompt := promptui.Select{
-			Label:        "Izaberi godinu",
-			Items:        schoolYears,
-			Templates:    template,
-			Size:         4,
-			HideSelected: true,
-			Stdout:       NoBellStdout,
-		}
-		i, _, err := prompt.Run()
-		if err != nil {
-			return RuntimeError{Err: err}
-		}
-		schoolYear = schoolYears[i]
+		var idx int
+		survey.AskOne(prompt, &idx)
+
+		schoolYear = school.SchoolYears[schoolYearsIds[idx]]
 	}
-	fmt.Printf("Izabrana godina: %v\n", schoolYear.Year)
 
 	if len(schoolYear.Classes) == 0 {
 		fmt.Println("No classes found")
@@ -311,16 +282,12 @@ func (app *AppEnv) run() error {
 	fmt.Printf("Odeljenje: %v\n", class.Section)
 	app.classId = fmt.Sprintf("%v", class.StudentClassId)
 
-	prompt := promptui.Select{
-		Label:        "Vladanje",
-		Items:        []int{1, 2, 3, 4, 5},
-		HideSelected: true,
-		Stdout:       NoBellStdout,
+	prompt := &survey.Select{
+		Message: "Vladanje",
+		Options: []string{"1", "2", "3", "4", "5"},
 	}
-	i, _, err := prompt.Run()
-	if err != nil {
-		return RuntimeError{Err: err}
-	}
+	var i int
+	survey.AskOne(prompt, &i)
 	vladanje := i + 1
 
 	fmt.Println()
@@ -333,7 +300,8 @@ func (app *AppEnv) run() error {
 	sum := vladanje
 	count := 1
 
-	fmt.Printf("Vladanje: %v\n", vladanje)
+	fmt.Printf("%-40v %-8v %-12v\n", "Predmet", "Prosek", "Zakljuceno")
+	fmt.Printf("%-40v %-8.2f %-12d\n", "Vladanje", 5.00, vladanje)
 	for _, c := range grades {
 		zakljuceno := c.getFinal()
 		if zakljuceno == 0 {
@@ -341,7 +309,7 @@ func (app *AppEnv) run() error {
 		}
 		sum += zakljuceno
 		count++
-		fmt.Printf("%v: %.2f %d\n", c.Course, c.getAverage(), zakljuceno)
+		fmt.Printf("%-40v %-8.2f %-12d\n", c.Course, c.getAverage(), zakljuceno)
 	}
 	fmt.Printf("\nProsek na kraju: %.2f\n", float64(sum)/float64(count))
 
